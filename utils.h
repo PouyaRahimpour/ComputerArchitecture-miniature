@@ -1,8 +1,8 @@
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
 
-void readFile(char *);
-
-int hexToInt(char* );
-
+int hexToInt(char* hex);
 void intToHex(char* lower, int a);
-
-int isNumeric(char *);
+int isNumeric(char *str);

@@ -1,6 +1,4 @@
-#include <stdio.h>
-#include <ctype.h>
-#include <string.h>
+#include "utils.h"
 
 int hexToInt(char* hex) {
     int result=0;

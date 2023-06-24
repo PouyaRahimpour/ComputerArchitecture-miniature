@@ -1,9 +1,4 @@
-#include<stdio.h>
-#include<string.h>
-#include<stdlib.h>
 #include "assemble.h"
-#include "utils.h"
-
 
 int findSymTabLen(FILE *inputFile){
    int count=0;

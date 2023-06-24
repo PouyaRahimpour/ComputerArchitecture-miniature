@@ -1,20 +1,13 @@
-#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
-#include "utils.h"
+#include <stdio.h>
 #include "assemble.h"
-#include "cpu.h"
-
-char hexTable[16]={'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
-char *instructions[] = {"add","sub","slt","or","nand",
-    "addi","slti","ori","lui","lw","sw","beq","jalr",
-    "j","halt"};
-char * directives[] = {".fill", ".space"};
-struct instruction mainMem[16*1024];
-//int dataMem[16*1024];
-int instCnt=0;
 
 // eaxh register is a 32 bit integer and we have 16 of them and are initially set to zero
 int R[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+struct instruction mainMem[16*1024];
 
 
 #define ADD 0
@@ -35,6 +28,230 @@ int RegDst,
     RegWrite,
     Less,
     Jalr;
+int instCnt=0;
+
+char hexTable[16]={'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
+
+char *instructions[] = {"add","sub","slt","or","nand",
+    "addi","slti","ori","lui","lw","sw","beq","jalr",
+    "j","halt"};
+
+char * directives[] = {".fill", ".space"};
+
+void controlUnit(struct instruction currInst) {
+    // RegDst
+    RegDst = (currInst.instType == RTYPE);
+
+    // Jump
+    Jump = (currInst.intInst==13); // j
+
+    // Branch
+    Branch = (currInst.intInst==11); // beq
+
+    // MemRead
+    MemRead = (currInst.intInst==9); // lw
+
+    // MemtoReg
+    MemtoReg = (currInst.intInst==9); // lw
+
+
+    // ALUop
+    // 14 halt??
+
+    int add = (currInst.intInst==0)|| // add
+            (currInst.intInst==5)|| // addi
+            (currInst.intInst==9)|| // lw
+            (currInst.intInst==10); // sw
+
+    int sub = (currInst.intInst==1)|| // sub
+            (currInst.intInst==2)||  // slt
+            (currInst.intInst==6); // slti
+
+    int or = (currInst.intInst==3)|| // or
+            (currInst.intInst==7); // ori
+
+    int nand = (currInst.intInst==4); // nand
+
+    int shift = (currInst.intInst==8); // lui
+
+
+    if (add) ALUop = ADD;
+    if (sub) ALUop = SUB;
+    if (or) ALUop = OR;
+    if (nand) ALUop = NAND;
+    if (shift) ALUop = SHIFTLEFT;
+
+    // MemWrite
+    MemWrite = (currInst.intInst==10); //sw
+
+    // ALUSrc
+    ALUSrc = (currInst.instType==ITYPE && currInst.intInst!=11); // all ITypes except for beq
+
+    // RegWrite
+    RegWrite = (currInst.instType==RTYPE)||
+                (currInst.intInst==5)|| // addi
+                (currInst.intInst==7)|| // ori
+                (currInst.intInst==6)|| // slti
+                (currInst.intInst==9)|| // lw
+                (currInst.intInst==12)|| // jalr
+                (currInst.intInst==8); // lui
+    // Less
+    Less = (currInst.intInst==2)|| // slt
+            (currInst.intInst==6); // slti
+    // Jalr
+    Jalr = (currInst.intInst==12); // jalr
+
+}
+void printSignals() {
+    printf("------------------------\n");
+    printf("control signals:\n");
+    printf("RegDst: %d\n", RegDst);
+    printf("Jump: %d\n", Jump);
+    printf("Branch: %d\n", Branch);
+    printf("MemRead: %d\n", MemRead);
+    printf("MemtoReg: %d\n", MemtoReg);
+    printf("ALUop: %d\n", ALUop);
+    printf("MemWrite: %d\n", MemWrite);
+    printf("ALUSrc: %d\n", ALUSrc);
+    printf("RegWrite: %d\n", RegWrite);
+    printf("Less: %d\n", Less);
+    printf("Jalr: %d\n", Jalr);
+    printf("\n");
+}
+int ALUSrcMux(int rt, int imm) {
+    if (ALUSrc) return imm;
+    else return rt;
+}
+int RegDstMux(int rt, int rd) {
+    if (RegDst) return rd;
+    else return rt;
+}
+int MemtoRegMux(int ALUout, int memOut) {
+    if (MemtoReg) return memOut;
+    else return ALUout;
+}
+int BranchMux(int inp, int jalOut, int zero) {
+    if (Branch && zero) return inp;
+    else return jalOut;
+}
+int JumpMux(int branchOut,int imm) {
+    if (Jump) return imm;
+    else return branchOut;
+}
+int LessMux(int ALUout, int less) {
+    if (Less) return less;
+    else return ALUout;
+}
+int JalrMux(int busA, int inp) {
+    if (Jalr) return busA;
+    else return inp;
+}
+int JalrWritebackMux(int memToRegMuxOut, int inp) {
+    if (Jalr) return inp;
+    else return memToRegMuxOut;
+}
+int ALU(int srcA, int srcB, int *zero, int* less) {
+    int ALUout;
+    switch(ALUop) {
+        case ADD:
+            ALUout = srcA+srcB;
+            break;
+        case SUB:
+            ALUout = srcA-srcB;
+            break;
+        case OR:
+            ALUout = srcA|srcB;
+            break;
+        case NAND:
+            ALUout = ~(srcA&srcB);
+            break;
+        case SHIFTLEFT:
+            ALUout = srcB << 16;
+            break;
+    }
+    *zero = (srcA-srcB==0)? 1: 0;
+    *less = (srcA-srcB<0)? 1: 0;
+    return ALUout;
+}
+void registerFileDecode(int rs, int rt, int *busA, int *busB) {
+    *busA = R[rs];
+    *busB = R[rt];
+}
+int mem(int addr, int writeData) {
+    struct instruction tmp;
+    if (MemWrite) {
+        tmp.imm = writeData;
+        tmp.intInst = 15;
+        mainMem[addr] = tmp;
+    }
+    if (MemRead) {
+        tmp = mainMem[addr];
+        if (tmp.intInst<15) return mainMem[addr].PC;
+        else return mainMem[addr].imm;
+    }
+    return 0;
+}
+void registerFileWriteback(int writeData, int writeRegister) {
+    if (RegWrite) R[writeRegister] = writeData;
+}
+void printRegisters() {
+    for (int i=0; i<16; i++) {
+        printf("Reg[%d]: %u\n", i, R[i]);
+    }
+    printf("\n");
+}
+
+void cpuCycle(int PC) {
+    if (PC >= instCnt) {
+        printf("the end:)\n");
+        return;
+    }
+
+    // instruction fetch
+    struct instruction currInst = mainMem[PC];
+    if (currInst.intInst==14) {
+        printf("halt\n");
+        return;
+    }
+    else if (currInst.intInst==15) {
+        // means it's just data, not an instruction
+        cpuCycle(PC+1);
+        return;
+    }
+
+    controlUnit(currInst);
+    printf("%s\n", currInst.mnemonic);
+    printf("PC: %d\n", PC);
+    //printSignals();
+
+    // decode: register file
+    int busA, busB;
+    registerFileDecode(currInst.rs, currInst.rt, &busA, &busB);
+    printf("%d, %d\n", busA, busB);
+
+    // exe: alu
+    int zero, less;
+    int ALUout = ALU(busA, ALUSrcMux(busB, currInst.imm), &zero, &less);
+    ALUout = LessMux(ALUout, less);
+
+    // memory
+    int memOut = mem(ALUout, busB);
+
+    // writeback: register file
+    int memToRegMuxOut = MemtoRegMux(ALUout, memOut);
+    int jalrWritebackOut = JalrWritebackMux(memToRegMuxOut, PC+1);
+    int writeRegister = RegDstMux(currInst.rt, currInst.rd);
+    registerFileWriteback(jalrWritebackOut, writeRegister);
+
+    // calculate next PC state
+    int jalOut = JalrMux(busA, PC+1);
+    int branchOut = BranchMux(currInst.imm+PC+1, jalOut, zero);
+    PC = JumpMux(branchOut, currInst.imm);
+
+    printRegisters();
+    // next cycle
+    cpuCycle(PC);
+}
 
 void assemble(FILE* assp, FILE* machp) {
     struct symbolTable *pSymTab;
@@ -218,223 +435,8 @@ void assemble(FILE* assp, FILE* machp) {
     free(line);
     free(currInst);
     free(pSymTab);
-    printf("______________________________\n|  asseble done succesfully  |\n|____________________________|\n");
+    printf("______________________________\n|  asseble done succesfully  |\n|____________________________|\n\n");
 }
-
-void controlUnit(struct instruction currInst) {
-    // RegDst
-    RegDst = (currInst.instType == RTYPE);
-
-    // Jump
-    Jump = (currInst.intInst==13); // j
-
-    // Branch
-    Branch = (currInst.intInst==11); // beq
-
-    // MemRead
-    MemRead = (currInst.intInst==9); // lw
-
-    // MemtoReg
-    MemtoReg = (currInst.intInst==9); // lw
-
-
-    // ALUop
-    // 14 halt??
-
-    int add = (currInst.intInst==0)|| // add
-            (currInst.intInst==5)|| // addi
-            (currInst.intInst==9)|| // lw
-            (currInst.intInst==10); // sw
-
-    int sub = (currInst.intInst==1)|| // sub
-            (currInst.intInst==2)||  // slt
-            (currInst.intInst==6); // slti
-
-    int or = (currInst.intInst==3)|| // or
-            (currInst.intInst==7); // ori
-
-    int nand = (currInst.intInst==4); // nand
-
-    int shift = (currInst.intInst==8); // lui
-
-
-    if (add) ALUop = ADD;
-    if (sub) ALUop = SUB;
-    if (or) ALUop = OR;
-    if (nand) ALUop = NAND;
-    if (shift) ALUop = SHIFTLEFT;
-
-    // MemWrite
-    MemWrite = (currInst.intInst==10); //sw
-
-    // ALUSrc
-    ALUSrc = (currInst.instType==ITYPE && currInst.intInst!=11); // all ITypes except for beq
-
-    // RegWrite
-    RegWrite = (currInst.instType==RTYPE)||
-                (currInst.intInst==5)|| // addi
-                (currInst.intInst==7)|| // ori
-                (currInst.intInst==6)|| // slti
-                (currInst.intInst==9)|| // lw
-                (currInst.intInst==12)|| // jalr
-                (currInst.intInst==8); // lui
-    // Less
-    Less = (currInst.intInst==2)|| // slt
-            (currInst.intInst==6); // slti
-    // Jalr
-    Jalr = (currInst.intInst==12); // jalr
-
-}
-void printSignals() {
-    printf("------------------------\n");
-    printf("control signals:\n");
-    printf("RegDst: %d\n", RegDst);
-    printf("Jump: %d\n", Jump);
-    printf("Branch: %d\n", Branch);
-    printf("MemRead: %d\n", MemRead);
-    printf("MemtoReg: %d\n", MemtoReg);
-    printf("ALUop: %d\n", ALUop);
-    printf("MemWrite: %d\n", MemWrite);
-    printf("ALUSrc: %d\n", ALUSrc);
-    printf("RegWrite: %d\n", RegWrite);
-    printf("Less: %d\n", Less);
-    printf("Jalr: %d\n", Jalr);
-    printf("\n");
-}
-int ALUSrcMux(int rt, int imm) {
-    if (ALUSrc) return imm;
-    else return rt;
-}
-int RegDstMux(int rt, int rd) {
-    if (RegDst) return rd;
-    else return rt;
-}
-int MemtoRegMux(int ALUout, int memOut) {
-    if (MemtoReg) return memOut;
-    else return ALUout;
-}
-int BranchMux(int inp, int jalOut, int zero) {
-    if (Branch && zero) return inp;
-    else return jalOut;
-}
-int JumpMux(int branchOut,int imm) {
-    if (Jump) return imm;
-    else return branchOut;
-}
-int LessMux(int ALUout, int less) {
-    if (Less) return less;
-    else return ALUout;
-}
-int JalrMux(int busA, int inp) {
-    if (Jalr) return busA;
-    else return inp;
-}
-int JalrWritebackMux(int memToRegMuxOut, int inp) {
-    if (Jalr) return inp;
-    else return memToRegMuxOut;
-}
-int ALU(int srcA, int srcB, int *zero, int* less) {
-    int ALUout;
-    switch(ALUop) {
-        case ADD:
-            ALUout = srcA+srcB;
-            break;
-        case SUB:
-            ALUout = srcA-srcB;
-            break;
-        case OR:
-            ALUout = srcA|srcB;
-            break;
-        case NAND:
-            ALUout = ~(srcA&srcB);
-            break;
-        case SHIFTLEFT:
-            ALUout = srcB << 16;
-            break;
-    }
-    *zero = (srcA-srcB==0)? 1: 0;
-    *less = (srcA-srcB<0)? 1: 0;
-    return ALUout;
-}
-void registerFileDecode(int rs, int rt, int *busA, int *busB) {
-    *busA = R[rs];
-    *busB = R[rt];
-}
-int mem(int addr, int writeData) {
-    struct instruction tmp;
-    if (MemWrite) {
-        tmp.imm = writeData;
-        tmp.intInst = 15;
-        mainMem[addr] = tmp;
-    }
-    if (MemRead) {
-        tmp = mainMem[addr];
-        if (tmp.intInst<15) return mainMem[addr].PC;
-        else return mainMem[addr].imm;
-    }
-    return 0;
-}
-void registerFileWriteback(int writeData, int writeRegister) {
-    if (RegWrite) R[writeRegister] = writeData;
-}
-void printRegisters() {
-    for (int i=0; i<16; i++) {
-        printf("Reg[%d]: %u\n", i, R[i]);
-    }
-    printf("\n");
-}
-void cpuCycle(int PC) {
-    if (PC >= instCnt) {
-        printf("the end:)\n");
-        return;
-    }
-
-    // instruction fetch
-    struct instruction currInst = mainMem[PC];
-    if (currInst.intInst==14) {
-        printf("halt\n");
-        return;
-    }
-    else if (currInst.intInst==15) {
-        // means it's just data, not an instruction
-        cpuCycle(PC+1);
-        return;
-    }
-
-    controlUnit(currInst);
-    printf("%s\n", currInst.mnemonic);
-    printf("PC: %d\n", PC);
-    //printSignals();
-
-    // decode: register file
-    int busA, busB;
-    registerFileDecode(currInst.rs, currInst.rt, &busA, &busB);
-    printf("%d, %d\n", busA, busB);
-
-    // exe: alu
-    int zero, less;
-    int ALUout = ALU(busA, ALUSrcMux(busB, currInst.imm), &zero, &less);
-    ALUout = LessMux(ALUout, less);
-
-    // memory
-    int memOut = mem(ALUout, busB);
-
-    // writeback: register file
-    int memToRegMuxOut = MemtoRegMux(ALUout, memOut);
-    int jalrWritebackOut = JalrWritebackMux(memToRegMuxOut, PC+1);
-    int writeRegister = RegDstMux(currInst.rt, currInst.rd);
-    registerFileWriteback(jalrWritebackOut, writeRegister);
-
-    // calculate next PC state
-    int jalOut = JalrMux(busA, PC+1);
-    int branchOut = BranchMux(currInst.imm+PC+1, jalOut, zero);
-    PC = JumpMux(branchOut, currInst.imm);
-
-    printRegisters();
-    // next cycle
-    cpuCycle(PC);
-}
-
 
 int main(int argc, char **argv) {
     FILE *assp,*machp;
@@ -457,6 +459,8 @@ int main(int argc, char **argv) {
     assemble(assp, machp);
     int PC = 0;
     cpuCycle(PC);
+    /*
+    */
 
     fclose(assp);
     fclose(machp);

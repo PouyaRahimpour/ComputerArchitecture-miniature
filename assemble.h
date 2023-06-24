@@ -1,6 +1,19 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "utils.h"
+
+struct instruction{
+   size_t instType; // 0 means r type, 1 means i type and 2 means j type
+   size_t intInst;
+   char mnemonic[50];
+   char inst[10];
+   char hexInst[15];
+   int rs;
+   int rt;
+   int rd;
+   int imm;
+   int PC;
+};
+
+
 //the number of R, I and J type instructions
 #define NORTYPE 5
 #define NOITYPE 8
@@ -17,20 +30,6 @@ struct symbolTable{
    int value;
    char symbol[30];
 };
-/* every time an instruction is read, it will be tokenized and each   *
- * token will reside in one element of this structure               */
-struct instruction{
-   size_t instType; // 0 means r type, 1 means i type and 2 means j type
-   size_t intInst;
-   char mnemonic[50];
-   char inst[10];
-   char hexInst[15];
-   int rs;
-   int rt;
-   int rd;
-   int imm;
-   int PC;
-};
 /* the follwing function, findSymTabLen, will scan the assembly    *
  * code and count the number of symbols and return it              */
 int findSymTabLen(FILE *);
@@ -46,3 +45,4 @@ int isJType(int);
 int atoiImproved(char *, struct symbolTable* , int);
 
 void formInst(struct instruction*);
+
