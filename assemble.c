@@ -70,7 +70,7 @@ int atoiImproved(char *str, struct symbolTable* symT, int symTabLen) {
     int state = symTabLen >= 0? 1:0;
     // if state is zero it means the function is called without symbol symbolTable
     // and that is's been called for a register,
-    // o.s it's been called to calculate an immidiate or label
+    // o.w it's been called to calculate an immidiate or label
     switch (state) {
     case 1:
         if (!isNumeric(str)) {
