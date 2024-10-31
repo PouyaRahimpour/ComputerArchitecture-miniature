@@ -1,4 +1,4 @@
-# Miniature Assembler
+# Miniature - MIPS-like assembler and simulator
 assembler for a simple assembly language similar to mips assembly.
 The project has two phases.
 ## Phase 1
