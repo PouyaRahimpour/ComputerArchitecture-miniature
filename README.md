@@ -20,7 +20,7 @@ Decodes and executes machine code provided in previous phase, simulating mips ha
 ```
 gcc -o main main.c utils.c assemble.c
 ```
--run
+- run
 ```
 ./main tests2/addi.as addi.m
 ```
